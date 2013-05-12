@@ -143,34 +143,6 @@ listen %s;
                 return res[0]
             return None
 
-    @contextmanager
-    def dequeue_item(self, tag, other_sess = None):
-        with self.session(other_sess) as (conn, cur):
-            cur.execute(self.select_sql % (tag,))
-            res = cur.fetchone()
-            if res:
-                self.invoking_queue_id = res[0]
-                if ((0 < self.excepted_times_to_ignore) and
-                    (self.excepted_times_to_ignore <= int(res[4]))):
-                    self.invoking_queue_id = None  # to ignore error reporting.
-                    yield None
-                else:
-                    yield res
-                cur.execute(self.ack_sql % (res[0],))
-                if conn: conn.commit()
-                self.invoking_queue_id = None
-            else:
-                yield res
-            return
-
-    @contextmanager
-    def dequeue(self, tag, other_sess = None):
-        with self.dequeue_item(tag, other_sess) as res:
-            if res:
-                yield self.deserializer(res[2])
-            else:
-                yield res
-            return
 
     def listen_item(self, tag, timeout=None):
         while True:
@@ -210,16 +182,6 @@ listen %s;
     def listen(self, tag, timeout=None):
         for d in self.listen_item(tag, timeout=timeout):
             yield (self.deserializer(d[2]) if d != None else None)
-
-    def dequeue_immediate(self, tag, other_sess = None):
-        with self.session(other_sess) as (conn, cur):
-            cur.execute(self.select_sql % (tag,))
-            res = cur.fetchone()
-            if res:
-                cur.execute(self.ack_sql % (res[0],))
-                if conn: conn.commit()
-                return self.deserializer(res[2])
-            return res
 
     def cancel(self, id, other_sess = None):
         with self.session(other_sess) as (conn, cur):
