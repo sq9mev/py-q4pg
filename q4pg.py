@@ -84,7 +84,7 @@ create index %s_created_at_idx  on %s(created_at);
 drop table %s;
 """ % (n,)
         self.insert_sql = """
-insert into %s (tag, content) values ('%%s', '%%s');
+insert into %s (tag, content) values ('%%s', '%%s') returning id;
 """ % (n,)
         self.report_sql = """
 update %s set except_times = except_times + 1
@@ -135,8 +135,13 @@ listen %s;
 
     def enqueue(self, tag, data, other_sess = None):
         with self.session(other_sess) as (conn, cur):
-            cur.execute((self.insert_sql + (self.notify_sql % (tag,))) % (tag, self.serializer(data),))
-            if conn: conn.commit()
+            cur.execute(self.insert_sql % (tag, self.serializer(data),))
+            res = cur.fetchone()
+            cur.execute(self.notify_sql % tag)
+            if conn:
+                conn.commit()
+                return res[0]
+            return None
 
     @contextmanager
     def dequeue_item(self, tag, other_sess = None):
