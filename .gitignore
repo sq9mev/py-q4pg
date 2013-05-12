@@ -7,4 +7,7 @@ memo/
 .\#*
 ~*
 *.pyc
+.*.swp
+.*.swo
+*~
 MANIFEST
