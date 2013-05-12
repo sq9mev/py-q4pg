@@ -1,3 +1,11 @@
+
+## Origiinal package may be found here:
+https://github.com/smihica/py-q4pg/
+
+This particaular branch is WIP, and the goal is to achive some simple asynchronous task queue
+
+---
+
 ### py-q4pg: A simple transactional message queue using PostgreSQL in Python.
 
 Lots of things are inspired from
