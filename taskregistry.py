@@ -10,7 +10,10 @@ class TaskRegistry(object):
         name = name or '%s.%s' % (callable.__module__, callable.__name__)
         if name in self._tasks:
             raise AlreadyRegisteredError
-        self._tasks.update({name: callable})
+        self._tasks.update({name: {
+            'c_name': callable.__name__,
+            'c_module': callable.__module__
+            }})
             
     def get(self, name):
         return self._tasks[name]

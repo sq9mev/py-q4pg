@@ -13,13 +13,11 @@ tq = TaskQueue(dsn, 'default_tag', taskregistry.tasks)
 def add(a, b):
     sleep(1)
     ret = a + b
-    print ret
     return ret
 
 @task(queue=tq, name="sub")
 def sub(a, b):
     sleep(1)
     ret = a - b
-    print ret
     return ret
 

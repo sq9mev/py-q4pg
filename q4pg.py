@@ -3,8 +3,10 @@ import select, json, re, psycopg2
 import psycopg2.extensions
 
 LISTEN_TIMEOUT_SECONDS = 60 # 1min
+NEW, PROCESSING, FINISHED, FAILED = 1, 2, 3, 4
 
 class QueueManager(object):
+
 
     def __init__(self,
                  dsn="", table_name="mq",
@@ -75,11 +77,13 @@ create table %s (
     tag            varchar(31)     not null,
     content        varchar(%d),
     created_at     timestamp       not null default current_timestamp,
-    except_times   integer         default 0
+    except_times   integer         default 0,
+    state          integer         default 0
 );
 create index %s_tag_idx         on %s(tag);
 create index %s_created_at_idx  on %s(created_at);
-""" % (n, self.data_length, n, n, n, n,)
+create index %s_state_idx  on %s(state);
+""" % (n, self.data_length, n, n, n, n, n, n)
         self.drop_table_sql = """
 drop table %s;
 """ % (n,)
@@ -92,10 +96,11 @@ update %s set except_times = except_times + 1
   returning pg_advisory_unlock(tableoid::int, id);
 """ % (n,)
         self.select_sql = """
-select * from %s
+update %s set state = %s
   where case when tag = '%%s' then pg_try_advisory_lock(tableoid::int, id) else false end
-  limit 1;
-""" % (n,)
+  and id = %%s
+  returning *;
+""" % (n, NEW)
         self.list_sql = """
 select * from %s
   where case when tag = '%%s' then pg_try_advisory_lock(tableoid::int, id) else false end;
@@ -113,7 +118,7 @@ delete from %s where id = %%s
   returning pg_advisory_unlock(tableoid::int, id);
 """ % (n,)
         self.notify_sql = """
-notify %s;
+notify %s, '%%s';
 """
         self.listen_sql = """
 listen %s;
@@ -136,15 +141,44 @@ listen %s;
     def enqueue(self, tag, data, other_sess = None):
         with self.session(other_sess) as (conn, cur):
             cur.execute(self.insert_sql % (tag, self.serializer(data),))
-            res = cur.fetchone()
-            cur.execute(self.notify_sql % tag)
-            if conn:
-                conn.commit()
-                return res[0]
-            return None
-
+            task_id = cur.fetchone()[0]
+            cur.execute(self.notify_sql % tag, (task_id,))
+            conn.commit()
+            return task_id
 
     def listen_item(self, tag, timeout=None):
+        while True:
+            with self.session(None) as (conn, cur):
+                with self.session(None) as (lconn, lcur):
+                    lconn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                    lconn.poll()
+                    lcur.execute((self.listen_sql % (tag,)))
+                    if select.select([lconn],[],[],(timeout or LISTEN_TIMEOUT_SECONDS)) == ([],[],[]):
+                        if timeout:
+                            self.invoking_queue_id = None # to ignore error reporting.
+                            yield None
+                        continue
+                    lconn.poll()
+                    while lconn.notifies:
+                        n = lconn.notifies.pop()
+                        cur.execute(self.select_sql  % (tag, int(n.payload),))
+                        res = cur.fetchone()
+                        yield res
+
+                    '''
+                            
+                        notifies.append(conn.notifies.pop())
+                    notifies.reverse()
+                    print notifies
+                    for n in notifies:
+                        print n.payload
+                        cur.execute(self.select_sql  % (tag, int(n.payload),))
+                        res = cur.fetchone()
+                        print res
+                    notifies = []
+                    '''
+
+    def listen_item_orig(self, tag, timeout=None):
         while True:
             with self.session(None) as (conn, cur):
                 cur.execute(self.select_sql % (tag,))
